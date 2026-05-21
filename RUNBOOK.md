@@ -75,9 +75,9 @@ dotnet test
 
 **Diagnosed using log artifact** (`artifacts/sample_slow_list_log.txt`): `limit=200` showed 1847ms. EF Core SQL log confirms full table scan with no `WHERE` or `LIMIT`. No indexes on `UserId` or `CreatedAt`.
 
-**Proposed fix:** Push filtering to the database. **Not yet applied** — downstream impacts unknown. See `TICKET.md`.
+**Fix:** Moved `Where`, `OrderByDescending`, and `Take` before `ToListAsync` so EF Core generates SQL with `WHERE`, `ORDER BY`, and `LIMIT` clauses. A composite index on `(UserId, CreatedAt)` is not yet added — see `TICKET.md`.
 
-**Severity:** Medium — functional but degrades with data growth.
+**Severity:** Medium — not a current issue, but degrades with data growth. The query fix prevents full table scans; the index follow-up will ensure performance at larger scale.
 
 ### Issue 3: Duplicates and ordering weirdness (Report 3)
 
@@ -109,9 +109,9 @@ state.tasks = state.tasks.concat(items)
 ### “Tasks list is slow”
 1. Check `ListTasks completed` log lines — note `elapsedMs`, `userId`, `limit`, `count`
 2. Run `sqlite3 app.db “SELECT COUNT(*) FROM Tasks;”` to confirm dataset size
-3. Check EF Core SQL log — if the query has no `WHERE` or `LIMIT`, filtering is in-memory
-4. Check indexes: `sqlite3 app.db “.indexes Tasks”` — empty means no secondary indexes
-5. Compare times across users and limits — if all are similarly slow regardless of result count, it's the full table load
+3. Check EF Core SQL log for the generated query:
+   - If SQL lacks `WHERE`, `ORDER BY`, or `LIMIT` → the query-shape fix has regressed (filtering is happening in-memory)
+   - If SQL has those clauses but latency is still high → check whether the `(UserId, CreatedAt)` index exists: `sqlite3 app.db “.indexes Tasks”`. If missing, the database is scanning all rows to satisfy the query. See `TICKET.md` for the index follow-up.
 
 ### “Duplicates / wrong order after refresh”
 1. Open browser DevTools → Network tab
@@ -144,9 +144,9 @@ Via UI:
 - [ ] Click Add in the UI 20+ times rapidly → no 500 errors in server log
 
 Via tests:
-- [ ] `dotnet test` → all 10 tests pass
+- [ ] `dotnet test` → all 12 tests pass
 
-**Report 2 (Slow lists) — after fix is applied (see `TICKET.md`):**
+**Report 2 (Slow lists):**
 
 Via curl or Swagger:
 - [ ] `curl “http://localhost:5088/api/tasks?userId=user-001&limit=50”` returns only user-001's tasks

@@ -153,5 +153,34 @@ public class TaskApiTests : IClassFixture<WebApplicationFactory<Program>>
         tasks.Should().BeInDescendingOrder(t => t.CreatedAt);
     }
 
+    [Fact]
+    public async Task ListTasks_ShouldRespectLimitParameter()
+    {
+        var client = _factory.CreateClient();
+
+        var tasks = await client.GetFromJsonAsync<List<TaskDto>>("/api/tasks?userId=user-001&limit=5");
+        tasks.Should().NotBeNull();
+        tasks!.Should().HaveCountLessThanOrEqualTo(5);
+    }
+
+    [Fact]
+    public async Task ListTasks_ShouldNotLeakTasksBetweenUsers()
+    {
+        var client = _factory.CreateClient();
+
+        var user1Tasks = await client.GetFromJsonAsync<List<TaskDto>>("/api/tasks?userId=user-001&limit=50");
+        var user2Tasks = await client.GetFromJsonAsync<List<TaskDto>>("/api/tasks?userId=user-002&limit=50");
+
+        user1Tasks.Should().NotBeNull();
+        user2Tasks.Should().NotBeNull();
+        user1Tasks!.Should().OnlyContain(t => t.UserId == "user-001");
+        user2Tasks!.Should().OnlyContain(t => t.UserId == "user-002");
+
+        // Ensure they're actually different sets
+        var user1Ids = user1Tasks.Select(t => t.Id).ToHashSet();
+        var user2Ids = user2Tasks.Select(t => t.Id).ToHashSet();
+        user1Ids.Overlaps(user2Ids).Should().BeFalse();
+    }
+
     public record TaskDto(int Id, string UserId, string Title, string Status, DateTime CreatedAt, DateTime UpdatedAt);
 }
